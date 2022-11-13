@@ -1,0 +1,88 @@
+-- Create a materilazed View to store in the Data After Removing Nulls and change the Date Format
+
+CREATE TABLE ONLINERETAIL AS
+
+SELECT INVOICENO
+	, STOCKCODE
+	, DESCRIPTION
+	, QUANTITY
+	, TO_TIMESTAMP(INVOICEDATE, 'MM,DD,YYYY HH24:MI') AS INVOICEDATE
+	, UNITPRICE
+	, CUSTOMERID
+	, COUNTRY
+FROM ONLINE_RETAIL
+WHERE CUSTOMERID != ''
+ORDER BY CUSTOMERID;
+
+-- Making a temp Table to calcate in the score of Frequency, Monetary, and recency 
+
+WITH temp_online_retail
+AS (
+	SELECT *
+		, NTILE(5) OVER (
+			ORDER BY recency DESC
+			) R_SCORE
+		, ROUND((
+				NTILE(5) OVER (
+					ORDER BY Frequency
+					) + NTILE(5) OVER (
+					ORDER BY Monetary
+					)
+				) / 2) AS FM_SCORE
+	FROM (
+		SELECT CUSTOMERID
+			, (
+				SELECT MAX(invoicedate)
+				FROM ONLINERETAIL
+				) - MAX(invoicedate) recency
+			, SUM(QUANTITY * unitprice) AS Monetary
+			, COUNT(invoiceno) AS Frequency
+		FROM ONLINERETAIL
+		GROUP BY CUSTOMERID
+		) AS sub
+	)
+
+
+-- Customer Segmentation based on RFM Model
+SELECT *
+	, (
+		CASE 
+			WHEN (R_SCORE = 5 AND FM_SCORE = 5
+				OR (R_SCORE = 5 AND FM_SCORE = 4)
+				OR (R_SCORE = 4 AND FM_SCORE = 5)
+				THEN 'Champion'
+			WHEN (R_SCORE = 5 AND FM_SCORE = 2)
+				OR (R_SCORE = 4 AND FM_SCORE = 2)
+				OR (R_SCORE = 3 AND FM_SCORE = 3)
+				OR (R_SCORE = 4 AND FM_SCORE = 3)
+				THEN 'Potential Loyalist'
+			WHEN (R_SCORE = 5 AND FM_SCORE = 3)
+				OR (R_SCORE = 4 AND FM_SCORE = 4)
+				OR (R_SCORE = 3 AND FM_SCORE = 5)
+				OR (R_SCORE = 3 AND FM_SCORE = 4)
+				THEN 'Loyal Customer'
+			WHEN (R_SCORE = 5 AND FM_SCORE = 1)
+				THEN 'Recent Customer'
+			WHEN (R_SCORE = 4 AND FM_SCORE = 1)
+				OR (R_SCORE = 3 FM_SCORE = 1)
+				THEN 'Promising'
+			WHEN (R_SCORE = 3 AND FM_SCORE = 2)
+				OR (R_SCORE = 2 AND FM_SCORE = 3)
+				OR (R_SCORE = 2 AND FM_SCORE = 2)
+				THEN 'Customer Needing Attention'
+			WHEN (R_SCORE = 2 AND FM_SCORE = 5)
+				OR (R_SCORE = 2 AND FM_SCORE = 4)
+				OR (R_SCORE = 1 AND FM_SCORE = 3)
+				THEN 'At Risk'
+			WHEN (R_SCORE = 1 AND FM_SCORE = 5)
+				OR (R_SCORE = 1 AND FM_SCORE = 4)
+				THEN 'Cant Lose Them'
+			WHEN (R_SCORE = 1 AND FM_SCORE = 5)
+				OR (R_SCORE = 1 AND FM_SCORE = 2)
+				THEN 'Hibernating'
+			WHEN (R_SCORE = 1 AND FM_SCORE = 1)
+				THEN 'Lost'
+			END
+		)
+FROM temp_online_retail;
+
